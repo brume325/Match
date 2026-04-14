@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Open+Sans:wght@400;500;600&display=swap');
+
+:root {
+  --color_primary: #0cacea;
+  --color_primary_dark: #0897cf;
+  --color_secondary: #d1dc32;
+  --color_secondary_dark: #b6c11f;
+  --color_background: #f8f9fa;
+  --color_text: #1f2937;
+  --color_surface: #ffffff;
+  --radius_md: 12px;
+  --shadow_md: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Open Sans', Arial, sans-serif;
+  background: var(--color_background);
+  color: var(--color_text);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Montserrat', sans-serif;
+  margin: 0;
+}
+
+.container {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button_primary {
+  background: var(--color_primary);
+  color: #ffffff;
+}
+
+.button_primary:hover {
+  background: var(--color_primary_dark);
+}
+
+.button_secondary {
+  background: var(--color_secondary);
+  color: #111827;
+}
+
+.button_secondary:hover {
+  background: var(--color_secondary_dark);
+}
+
+.card {
+  background: var(--color_surface);
+  border-radius: var(--radius_md);
+  box-shadow: var(--shadow_md);
+  padding: 16px;
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding: 24px;
+  }
+}

@@ -1,0 +1,2 @@
+PowerShell -ExecutionPolicy Bypass -File .\install_one_shot.ps1
+php -S localhost:8000

@@ -1,0 +1,7 @@
+.env
+.idea/
+public/uploads/
+src/pages/uploads/
+*.log
+Thumbs.db
+Desktop.ini
