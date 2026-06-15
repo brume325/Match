@@ -4,98 +4,60 @@ require_once 'config.php';
 
 $isLoggedIn = isset($_SESSION['user_id']);
 
-// Paramètres de recherche
-$q          = trim($_GET['q']          ?? '');
-$categorie  = (int)($_GET['categorie'] ?? 0);
-$ville      = trim($_GET['ville']      ?? '');
-$payant     = $_GET['payant']          ?? '';    // '' | '0' | '1'
-$date_min   = trim($_GET['date_min']   ?? '');
-$date_max   = trim($_GET['date_max']   ?? '');
-$sort       = $_GET['sort']            ?? 'date'; // date | popularite | places
-$welcome    = isset($_GET['welcome']) && $_GET['welcome'] === '1';
+$q        = trim($_GET['q']        ?? '');
+$cat_f    = trim($_GET['cat']      ?? '');
+$ville    = trim($_GET['ville']    ?? '');
+$payant   = $_GET['payant']        ?? '';
+$date_min = trim($_GET['date_min'] ?? '');
+$date_max = trim($_GET['date_max'] ?? '');
+$sort     = $_GET['sort']          ?? 'date';
+$welcome  = isset($_GET['welcome']);
 
-// Catégories pour le filtre
-try {
-    $categories = $pdo->query("SELECT categorie_id, nom, icone FROM categorie ORDER BY nom")->fetchAll();
-} catch (PDOException $e) {
-    $categories = [];
-}
+$CATS = ['Sport'=>'⚽','Culture'=>'🎭','Musique'=>'🎵','Jeux'=>'🎮','Nature'=>'🌿','Sorties'=>'🎉','Food'=>'🍕','Autre'=>'🔖'];
+$categories = array_keys($CATS);
 
-// Construction de la requête dynamique
-$where  = ['a.statut = \'actif\''];
+$where  = ["a.statut='actif'", "a.date_activite >= CURDATE()"];
 $params = [];
 
 if ($q !== '') {
-    $where[]        = "(LOWER(a.titre) LIKE LOWER(:q) OR LOWER(a.description) LIKE LOWER(:q))";
-    $params[':q']   = '%' . $q . '%';
+    $where[] = "(a.titre LIKE :q OR a.description LIKE :q)";
+    $params[':q'] = "%$q%";
 }
-if ($categorie > 0) {
-    $where[]              = "a.categorie_id = :cat";
-    $params[':cat']       = $categorie;
+if ($cat_f !== '') {
+    $where[] = "a.categorie = :cat";
+    $params[':cat'] = $cat_f;
 }
 if ($ville !== '') {
-    $where[]              = "LOWER(l.ville) LIKE LOWER(:ville)";
-    $params[':ville']     = '%' . $ville . '%';
+    $where[] = "a.ville LIKE :ville";
+    $params[':ville'] = "%$ville%";
 }
-if ($payant === '0') {
-    $where[] = "a.est_payante = 0";
-} elseif ($payant === '1') {
-    $where[] = "a.est_payante > 0";
-}
-if ($date_min !== '') {
-    $where[]              = "a.date >= :dmin";
-    $params[':dmin']      = $date_min;
-}
-if ($date_max !== '') {
-    $where[]              = "a.date <= :dmax";
-    $params[':dmax']      = $date_max;
-}
+if ($payant === '0') { $where[] = "a.est_payante=0"; }
+if ($payant === '1') { $where[] = "a.est_payante=1"; }
+if ($date_min !== '') { $where[] = "a.date_activite >= :dmin"; $params[':dmin'] = $date_min; }
+if ($date_max !== '') { $where[] = "a.date_activite <= :dmax"; $params[':dmax'] = $date_max; }
 
 $orderBy = match($sort) {
-    'popularite' => 'a.popularite DESC',
-    'places'     => 'places_restantes DESC',
-    default      => 'a.date ASC, a.heure_debut ASC',
+    'popularite' => 'nb_participants DESC',
+    default      => 'a.date_activite ASC, a.heure_debut ASC',
 };
-
-$whereSql = count($where) ? 'WHERE ' . implode(' AND ', $where) : '';
+$whereSql = 'WHERE ' . implode(' AND ', $where);
 
 try {
-    $sql = "
-        SELECT a.activity_id,
-               a.titre,
-               a.description,
-               a.date,
-               a.heure_debut,
-               a.heure_fin,
-               a.image_couverture,
-               a.nb_places_max,
-               a.est_payante,
-               a.prix,
-               a.popularite,
-               COALESCE(l.ville, '')    AS ville,
-               COALESCE(l.nom_lieu, '') AS nom_lieu,
-               COALESCE(cat.nom, '')    AS categorie_nom,
-               COALESCE(cat.icone, '🎯') AS categorie_icone,
-               u.prenom AS org_prenom, u.nom AS org_nom,
-               SUM(CASE WHEN p.statut_inscription = 'inscrit' THEN 1 ELSE 0 END) AS nb_participants,
-               GREATEST(0, COALESCE(a.nb_places_max, 9999) - SUM(CASE WHEN p.statut_inscription = 'inscrit' THEN 1 ELSE 0 END)) AS places_restantes
-        FROM activite a
-        LEFT JOIN lieu l         ON a.lieu_id      = l.lieu_id
-        LEFT JOIN categorie cat  ON a.categorie_id = cat.categorie_id
-        LEFT JOIN utilisateur u  ON a.createur_id  = u.user_id
-        LEFT JOIN participation p ON a.activity_id = p.activity_id
-        $whereSql
-        GROUP BY a.activity_id, l.lieu_id, cat.categorie_id, u.user_id
-        ORDER BY $orderBy
-        LIMIT 60
-    ";
+    $sql = "SELECT a.*, u.prenom, u.nom,
+                   COUNT(r.id) AS nb_participants
+            FROM activities a
+            JOIN users u ON u.id = a.id_organisateur
+            LEFT JOIN registrations r ON r.activity_id = a.id
+            $whereSql
+            GROUP BY a.id
+            ORDER BY $orderBy
+            LIMIT 60";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $results = $stmt->fetchAll();
 } catch (PDOException $e) {
     $results = [];
 }
-
 $nb_results = count($results);
 ?>
 <!doctype html>
@@ -181,7 +143,7 @@ $nb_results = count($results);
   <form method="GET" action="recherche.php" class="search-bar">
     <input type="text" name="q" value="<?= htmlspecialchars($q) ?>"
            placeholder="Sport, culture, jeux…">
-    <?php if ($categorie): ?><input type="hidden" name="categorie" value="<?= $categorie ?>"><?php endif; ?>
+    <?php if ($cat_f): ?><input type="hidden" name="cat" value="<?= htmlspecialchars($cat_f) ?>"><?php endif; ?>
     <?php if ($ville): ?><input type="hidden" name="ville" value="<?= htmlspecialchars($ville) ?>"><?php endif; ?>
     <button type="submit">Rechercher</button>
   </form>
@@ -192,11 +154,11 @@ $nb_results = count($results);
   <form method="GET" action="recherche.php" id="filterForm" style="display:contents;">
     <?php if ($q): ?><input type="hidden" name="q" value="<?= htmlspecialchars($q) ?>"><?php endif; ?>
 
-    <select name="categorie" class="filter-select" onchange="document.getElementById('filterForm').submit()">
+    <select name="cat" class="filter-select" onchange="document.getElementById('filterForm').submit()">
       <option value="">Toutes catégories</option>
-      <?php foreach ($categories as $cat): ?>
-        <option value="<?= $cat['categorie_id'] ?>" <?= $categorie === (int)$cat['categorie_id'] ? 'selected' : '' ?>>
-          <?= htmlspecialchars($cat['icone'] . ' ' . $cat['nom']) ?>
+      <?php foreach ($categories as $c): ?>
+        <option value="<?= htmlspecialchars($c) ?>" <?= $cat_f === $c ? 'selected' : '' ?>>
+          <?= $CATS[$c] ?> <?= htmlspecialchars($c) ?>
         </option>
       <?php endforeach; ?>
     </select>
@@ -263,73 +225,41 @@ $nb_results = count($results);
   <?php else: ?>
     <div class="activities">
       <?php foreach ($results as $act):
-        $date   = $act['date']       ? date('d/m/Y', strtotime($act['date'])) : '';
-        $hdeb   = $act['heure_debut'] ? substr($act['heure_debut'], 0, 5) : '';
-        $hfin   = $act['heure_fin']   ? substr($act['heure_fin'],  0, 5) : '';
-        $lieu   = $act['nom_lieu'] ?: $act['ville'];
-        $catNom   = $act['categorie_nom']   ?? '';
-        $catIcone = $act['categorie_icone'] ?? '🎯';
-        $places   = (int)$act['places_restantes'];
-        $complet  = $act['nb_places_max'] && $places <= 0;
+        $date    = date('d/m/Y', strtotime($act['date_activite']));
+        $hdeb    = substr($act['heure_debut'] ?? '', 0, 5);
+        $hfin    = $act['heure_fin'] ? substr($act['heure_fin'], 0, 5) : '';
+        $nb      = (int)$act['nb_participants'];
+        $max     = $act['nb_max_participants'] ? (int)$act['nb_max_participants'] : null;
+        $complet = $max && $nb >= $max;
+        $ico     = $CATS[$act['categorie']] ?? '🔖';
       ?>
-        <article class="activity-card <?= $complet ? 'opacity-60' : '' ?>">
-          <?php if ($act['image_couverture']): ?>
-            <img src="<?= htmlspecialchars($act['image_couverture']) ?>"
-                 alt="<?= htmlspecialchars($act['titre']) ?>"
-                 class="activity-image"
-                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-            <div class="activity-image-placeholder" data-cat="<?= htmlspecialchars($catNom) ?>" style="display:none;">
-              <span class="placeholder-emoji"><?= $catIcone ?></span>
-              <span class="placeholder-label"><?= htmlspecialchars($catNom ?: 'Activité') ?></span>
-            </div>
+        <article class="activity-card">
+          <?php if ($act['image_url']): ?>
+            <img src="<?= htmlspecialchars($act['image_url']) ?>" alt="" class="activity-image">
           <?php else: ?>
-            <div class="activity-image-placeholder" data-cat="<?= htmlspecialchars($catNom) ?>">
-              <span class="placeholder-emoji"><?= $catIcone ?></span>
-              <span class="placeholder-label"><?= htmlspecialchars($catNom ?: 'Activité') ?></span>
-            </div>
+            <div class="activity-image-placeholder"><span style="font-size:3rem"><?= $ico ?></span></div>
           <?php endif; ?>
           <div class="activity-body">
             <h2 class="activity-title"><?= htmlspecialchars($act['titre']) ?></h2>
-
             <div class="activity-tags">
-              <?php if ($act['categorie_nom']): ?>
-                <span class="activity-type-badge"><?= htmlspecialchars($act['categorie_icone'] . ' ' . $act['categorie_nom']) ?></span>
-              <?php endif; ?>
+              <span class="activity-type-badge"><?= $ico ?> <?= htmlspecialchars($act['categorie']) ?></span>
               <?php if ($act['est_payante']): ?>
-                <span class="activity-type-badge payant">💰 <?= number_format($act['prix'], 2) ?>€</span>
+                <span class="activity-type-badge payant">💰 Payant</span>
               <?php else: ?>
                 <span class="activity-type-badge gratuit">✅ Gratuit</span>
               <?php endif; ?>
-              <?php if ($complet): ?>
-                <span class="tag" style="background:#fee2e2;color:#dc2626;">Complet</span>
-              <?php endif; ?>
+              <?php if ($complet): ?><span class="tag" style="background:#fee2e2;color:#dc2626;">Complet</span><?php endif; ?>
             </div>
-
-            <p class="activity-meta">
-              <?php if ($lieu): ?><?= htmlspecialchars($lieu) ?><?php endif; ?>
-              <?php if ($date): ?> • <?= $date ?><?php endif; ?>
-              <?php if ($hdeb): ?> • <?= $hdeb ?><?php if ($hfin): ?>–<?= $hfin ?><?php endif; ?><?php endif; ?>
-            </p>
-
-            <p class="activity-participants">
-              <?= (int)$act['nb_participants'] ?> participant<?= $act['nb_participants'] > 1 ? 's' : '' ?>
-              <?php if ($act['nb_places_max']): ?> / <?= (int)$act['nb_places_max'] ?> places<?php endif; ?>
-            </p>
-
-            <p class="activity-desc"><?= htmlspecialchars($act['description']) ?></p>
-
-            <p style="font-size:.78rem;color:var(--mm-grey);">
-              Organisé par <?= htmlspecialchars($act['org_prenom'] . ' ' . $act['org_nom']) ?>
-            </p>
-
+            <p class="activity-meta">📍 <?= htmlspecialchars($act['lieu']) ?><?= $act['ville'] ? ' · '.$act['ville'] : '' ?> · 📅 <?= $date ?><?= $hdeb ? ' '.$hdeb : '' ?></p>
+            <p class="activity-participants">👥 <?= $nb ?><?= $max ? "/$max places" : ' participants' ?></p>
+            <?php if ($act['description']): ?>
+              <p class="activity-desc"><?= htmlspecialchars(mb_substr($act['description'], 0, 120)) ?>…</p>
+            <?php endif; ?>
+            <p style="font-size:.78rem;color:var(--mm-grey);">par <?= htmlspecialchars($act['prenom'].' '.$act['nom']) ?></p>
             <div class="activity-actions">
-              <a href="activite.php?id=<?= (int)$act['activity_id'] ?>" class="btn btn-primary btn-sm">
-                Voir l'activité
-              </a>
+              <a href="activite.php?id=<?= (int)$act['id'] ?>" class="btn btn-primary btn-sm">Voir</a>
               <?php if ($isLoggedIn && !$complet): ?>
-                <a href="participer.php?activity_id=<?= (int)$act['activity_id'] ?>" class="btn btn-secondary btn-sm">
-                  Participer
-                </a>
+                <a href="participer.php?id=<?= (int)$act['id'] ?>" class="btn btn-secondary btn-sm">Participer</a>
               <?php endif; ?>
             </div>
           </div>

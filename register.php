@@ -41,18 +41,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         try {
             // Email déjà utilisé ?
-            $stmt = $pdo->prepare('SELECT user_id FROM utilisateur WHERE email = :email');
+            $stmt = $pdo->prepare('SELECT id FROM users WHERE email = :email');
             $stmt->execute([':email' => $email]);
             if ($stmt->fetch()) {
                 $errors[] = 'Cette adresse email est déjà utilisée.';
             } else {
                 // Hash du mot de passe + insertion
-                $hash = password_hash($mdp, PASSWORD_BCRYPT);
+                $hash  = password_hash($mdp, PASSWORD_BCRYPT);
+                $token = bin2hex(random_bytes(32));
 
-                $sql = "
-                    INSERT INTO utilisateur (prenom, nom, email, mdp, age, classe)
-                    VALUES (:prenom, :nom, :email, :mdp, :age, :classe)
-                ";
+                $sql = "INSERT INTO users (prenom, nom, email, mdp, age, classe, token_verif, email_verifie)
+                        VALUES (:prenom,:nom,:email,:mdp,:age,:classe,:tok,0)";
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute([
                     ':prenom' => $prenom,
@@ -61,20 +60,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':mdp'    => $hash,
                     ':age'    => $age !== '' ? (int)$age : null,
                     ':classe' => $classe !== '' ? $classe : null,
+                    ':tok'    => $token,
                 ]);
+                $new_id = (int)$pdo->lastInsertId();
+
+                $app_url = getenv('APP_URL') ?: 'http://localhost';
+                $link    = $app_url . '/verify_email.php?token=' . $token;
+                @mail($email, 'Match Moov – Confirme ton adresse e-mail',
+                    "Bonjour $prenom,\n\nClique ici pour valider ton compte :\n$link\n\nL'équipe Match Moov",
+                    'From: no-reply@matchmoov.fr');
+
+                require_once 'badges.php';
+                attribuer_badges($new_id, $pdo);
 
                 session_regenerate_id(true);
-                $_SESSION['user_id']   = (int)$pdo->lastInsertId();
+                $_SESSION['user_id']   = $new_id;
                 $_SESSION['prenom']    = $prenom;
                 $_SESSION['nom']       = $nom;
                 $_SESSION['email']     = $email;
                 $_SESSION['est_admin'] = false;
 
-                // Attribution du badge "Bienvenu"
-                require_once 'badges.php';
-                attribuer_badges($_SESSION['user_id'], $pdo);
-
-                // Redirection vers recherche pour rejoindre une premiere activite en 1-2 clics
                 header('Location: recherche.php?welcome=1');
                 exit;
             }

@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+
+  # ─── Service PHP / Apache ────────────────────────────────────────────
+  web:
+    build: .
+    container_name: matchmoov_web
+    restart: unless-stopped
+    volumes:
+      - .:/var/www/html          # code source monté en live-reload
+      - uploads_data:/var/www/html/uploads
+    environment:
+      DB_HOST:   db
+      DB_PORT:   "3306"
+      DB_NAME:   ${DB_NAME:-bd_matchmoove}
+      DB_USER:   ${DB_USER:-matchmoov}
+      DB_PASS:   ${DB_PASS:-secret}
+      APP_URL:   ${APP_URL:-http://localhost:8080}
+      APP_ENV:   ${APP_ENV:-local}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"               # accès local : http://localhost:8080
+
+  # ─── Service MariaDB ─────────────────────────────────────────────────
+  db:
+    image: mariadb:11
+    container_name: matchmoov_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE:      ${DB_NAME:-bd_matchmoove}
+      MYSQL_USER:          ${DB_USER:-matchmoov}
+      MYSQL_PASSWORD:      ${DB_PASS:-secret}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootsecret}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Service Cloudflare Tunnel (URL publique HTTPS automatique) ──────
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: matchmoov_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TOKEN:-} 2>/dev/null || cloudflared tunnel --no-autoupdate --url http://web:80
+    # Sans CLOUDFLARE_TOKEN : génère un Quick Tunnel temporaire gratuit
+    # Avec CLOUDFLARE_TOKEN  : tunnel permanent nommé (créer sur dash.cloudflare.com)
+    depends_on:
+      - web
+    environment:
+      TUNNEL_URL: http://web:80
+
+volumes:
+  db_data:      # persistance MariaDB
+  uploads_data: # persistance des fichiers uploadés

@@ -18,11 +18,8 @@ $nb_places_max = '';
 $est_payante = false;
 $categorie_id = 0;
 
-// Charger les catégories pour le formulaire
-$categories = [];
-try {
-    $categories = $pdo->query("SELECT categorie_id, nom, icone FROM categorie ORDER BY nom")->fetchAll();
-} catch (PDOException $e) { }
+$CATS = ['Sport'=>'⚽','Culture'=>'🎭','Musique'=>'🎵','Jeux'=>'🎮','Nature'=>'🌿','Sorties'=>'🎉','Food'=>'🍕','Autre'=>'🔖'];
+$categories = array_keys($CATS);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $titre         = trim($_POST['titre'] ?? '');
@@ -35,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $heure_fin     = trim($_POST['heure_fin'] ?? '');
     $nb_places_max = trim($_POST['nb_places_max'] ?? '');
     $est_payante   = isset($_POST['est_payante']);
-    $categorie_id  = (int)($_POST['categorie_id'] ?? 0);
+    $categorie_sel = trim($_POST['categorie'] ?? 'Autre');
     $createur_id   = $_SESSION['user_id'];
 
     // Gestion de l'image : upload fichier OU URL saisie
@@ -77,45 +74,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         try {
-            // 1) créer le lieu
-            $sqlLieu = "
-                INSERT INTO lieu (nom_lieu, adresse, ville)
-                VALUES (:nom_lieu, :adresse, :ville)
-            ";
-            $stmtLieu = $pdo->prepare($sqlLieu);
-            $stmtLieu->execute([
-                ':nom_lieu' => $nom_lieu !== '' ? $nom_lieu : $ville,
-                ':adresse'  => $adresse !== '' ? $adresse : null,
-                ':ville'    => $ville,
-            ]);
-            $lieu_id = (int)$pdo->lastInsertId();
-
-            // 2) créer l'activité
-            $sqlAct = "
-                INSERT INTO activite (
-                    titre, description, createur_id, categorie_id, lieu_id,
-                    date, heure_debut, heure_fin, nb_places_max, image_couverture, est_payante
-                )
-                VALUES (
-                    :titre, :description, :createur_id, :categorie_id, :lieu_id,
-                    :date, :heure_debut, :heure_fin, :nb_places_max, :image_couverture, :est_payante
-                )
-            ";
+                $lieu_complet = ($nom_lieu !== '' ? $nom_lieu.', ' : '') . ($adresse !== '' ? $adresse.', ' : '') . $ville;
+            $sqlAct = "INSERT INTO activities
+                (titre, description, id_organisateur, categorie, lieu, ville, date_activite, heure_debut, heure_fin, nb_max_participants, image_url, est_payante)
+                VALUES (:titre,:desc,:org,:cat,:lieu,:ville,:date,:hdeb,:hfin,:max,:img,:pay)";
             $stmtAct = $pdo->prepare($sqlAct);
             $stmtAct->execute([
-                ':titre'            => $titre,
-                ':description'      => $description,
-                ':createur_id'      => $createur_id,
-                ':categorie_id'     => $categorie_id > 0 ? $categorie_id : null,
-                ':lieu_id'          => $lieu_id,
-                ':date'             => $date,
-                ':heure_debut'      => $heure_debut !== '' ? $heure_debut : null,
-                ':heure_fin'        => $heure_fin !== '' ? $heure_fin : null,
-                ':nb_places_max'    => $nb_places_max !== '' ? (int)$nb_places_max : null,
-                ':image_couverture' => $image !== '' ? $image : null,
-                ':est_payante'      => $est_payante ? 1 : 0,
+                ':titre' => $titre,
+                ':desc'  => $description,
+                ':org'   => $createur_id,
+                ':cat'   => in_array($categorie_sel, $categories) ? $categorie_sel : 'Autre',
+                ':lieu'  => $lieu_complet,
+                ':ville' => $ville !== '' ? $ville : null,
+                ':date'  => $date,
+                ':hdeb'  => $heure_debut !== '' ? $heure_debut : null,
+                ':hfin'  => $heure_fin   !== '' ? $heure_fin   : null,
+                ':max'   => $nb_places_max !== '' ? (int)$nb_places_max : null,
+                ':img'   => $image !== '' ? $image : null,
+                ':pay'   => $est_payante ? 1 : 0,
             ]);
-
             $activity_id = (int)$pdo->lastInsertId();
 
             // Ajouter points + vérifier badges
@@ -232,13 +209,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
               <div class="form-row">
                 <div class="form-field">
-                  <label for="categorie_id">Catégorie</label>
-                  <select id="categorie_id" name="categorie_id">
-                    <option value="0">-- Choisir une catégorie --</option>
-                    <?php foreach ($categories as $cat): ?>
-                      <option value="<?= (int)$cat['categorie_id'] ?>"
-                        <?= $categorie_id === (int)$cat['categorie_id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($cat['icone'] . ' ' . $cat['nom']) ?>
+                  <label for="categorie">Catégorie</label>
+                  <select id="categorie" name="categorie">
+                    <?php foreach ($categories as $c): ?>
+                      <option value="<?= htmlspecialchars($c) ?>" <?= ($categorie_sel ?? '') === $c ? 'selected' : '' ?>>
+                        <?= $CATS[$c] ?> <?= htmlspecialchars($c) ?>
                       </option>
                     <?php endforeach; ?>
                   </select>
